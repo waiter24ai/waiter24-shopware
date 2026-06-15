@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/shopware/platform/trunk/src/Core/System/SystemConfig/Schema/config.xsd">
+    <card>
+        <title>General</title>
+        <title lang="de-DE">Allgemein</title>
+
+        <input-field type="password">
+            <name>importToken</name>
+            <label>Import Token</label>
+            <label lang="de-DE">Import-Token</label>
+            <helpText>Secret token from your Waiter24 dashboard (Site Settings → Automatic menu import). Authenticates the menu push.</helpText>
+        </input-field>
+
+        <input-field type="text">
+            <name>widgetKey</name>
+            <label>Widget Key</label>
+            <helpText>Public key used to load the chat widget on your storefront.</helpText>
+        </input-field>
+
+        <input-field type="text">
+            <name>endpointUrl</name>
+            <label>Import Endpoint URL</label>
+            <defaultValue>https://waiter24.ai/api/integrations/menu</defaultValue>
+        </input-field>
+
+        <input-field type="text">
+            <name>widgetUrl</name>
+            <label>Widget Script URL</label>
+            <defaultValue>https://waiter24.ai/widget.js</defaultValue>
+        </input-field>
+
+        <input-field type="text">
+            <name>storeUrl</name>
+            <label>Storefront Base URL</label>
+            <helpText>Used to build product links (e.g. https://yourstore.com).</helpText>
+        </input-field>
+    </card>
+
+    <card>
+        <title>Export</title>
+        <title lang="de-DE">Export</title>
+
+        <input-field type="bool">
+            <name>simpleStock</name>
+            <label>Simple Stock Mode</label>
+            <helpText>Export all products as available regardless of real stock.</helpText>
+            <defaultValue>true</defaultValue>
+        </input-field>
+
+        <input-field type="bool">
+            <name>enableWidget</name>
+            <label>Enable Chat Widget</label>
+            <helpText>Inject the Waiter24 chat widget on the storefront.</helpText>
+            <defaultValue>false</defaultValue>
+        </input-field>
+    </card>
+</config>

@@ -1,0 +1,231 @@
+<?php declare(strict_types=1);
+
+namespace Waiter24\Export\Service;
+
+use Psr\Log\LoggerInterface;
+use Shopware\Core\Content\Product\ProductEntity;
+use Shopware\Core\Framework\Context;
+use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
+use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
+use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\EqualsFilter;
+use Symfony\Component\HttpClient\HttpClient;
+
+/**
+ * Builds the platform-neutral menu JSON from the Shopware catalog and pushes it
+ * to the Waiter24 import endpoint. Same schema as the WooCommerce, Shopify and
+ * Magento integrations (see public/samples/menu-import-sample.json).
+ */
+class MenuExporter
+{
+    public function __construct(
+        private readonly PluginConfig $config,
+        private readonly EntityRepository $productRepository,
+        private readonly LoggerInterface $logger,
+    ) {
+    }
+
+    /**
+     * Build + push. Returns the decoded server response.
+     *
+     * @return array<string,mixed>
+     * @throws \RuntimeException when not configured or the push fails.
+     */
+    public function run(?string $salesChannelId = null): array
+    {
+        $token    = $this->config->getImportToken($salesChannelId);
+        $endpoint = $this->config->getEndpointUrl($salesChannelId);
+
+        if ($token === '' || $endpoint === '') {
+            throw new \RuntimeException('Waiter24: import token or endpoint URL is not configured.');
+        }
+
+        $payload = $this->build($salesChannelId);
+
+        $client   = HttpClient::create();
+        $response = $client->request('POST', $endpoint, [
+            'headers' => [
+                'Authorization' => 'Bearer ' . $token,
+                'Content-Type'  => 'application/json',
+                'Accept'        => 'application/json',
+            ],
+            'body'    => json_encode($payload, JSON_UNESCAPED_UNICODE),
+            'timeout' => 30,
+        ]);
+
+        $status = $response->getStatusCode();
+        if ($status < 200 || $status >= 300) {
+            $this->logger->error('Waiter24 export failed', ['status' => $status]);
+            throw new \RuntimeException(sprintf('Waiter24: import endpoint returned HTTP %d.', $status));
+        }
+
+        return $response->toArray(false);
+    }
+
+    /**
+     * @return array{site_config: array<string,mixed>, items: array<int,array<string,mixed>>}
+     */
+    public function build(?string $salesChannelId = null): array
+    {
+        $context     = Context::createDefaultContext();
+        $simpleStock = $this->config->isSimpleStock($salesChannelId);
+        $storeUrl    = $this->config->getStoreUrl($salesChannelId);
+
+        $criteria = new Criteria();
+        $criteria->addFilter(new EqualsFilter('active', true));
+        $criteria->addFilter(new EqualsFilter('parentId', null)); // skip variant children; listed under parents
+        $criteria->addAssociation('categories');
+        $criteria->addAssociation('cover.media');
+        $criteria->addAssociation('children.options.group');
+        $criteria->addAssociation('prices');
+
+        /** @var ProductEntity[] $products */
+        $products = $this->productRepository->search($criteria, $context)->getElements();
+
+        $items = [];
+        $sort  = 0;
+
+        foreach ($products as $product) {
+            $items[] = $this->mapProduct($product, ++$sort, $simpleStock, $storeUrl);
+        }
+
+        return [
+            'site_config' => ['platform_preset' => 'custom'],
+            'items'       => $items,
+        ];
+    }
+
+    /**
+     * @return array<string,mixed>
+     */
+    private function mapProduct(ProductEntity $product, int $sortOrder, bool $simpleStock, string $storeUrl): array
+    {
+        [$category, $subcategory] = $this->resolveCategories($product);
+        [$price, $salePrice]      = $this->resolvePrice($product);
+
+        $description = $product->getDescription();
+        $description = $description ? trim(html_entity_decode(strip_tags($description))) : null;
+
+        $photoUrl = $product->getCover()?->getMedia()?->getUrl();
+
+        $available = $simpleStock ? true : (bool) $product->getAvailable();
+
+        $item = [
+            'external_id' => $product->getId(),
+            'category'    => $category,
+            'subcategory' => $subcategory,
+            'name'        => (string) $product->getName(),
+            'description' => $description ?: null,
+            'price'       => $price,
+            'sale_price'  => $salePrice,
+            'currency'    => null,
+            'photo_url'   => $photoUrl,
+            'product_url' => $storeUrl !== '' ? $storeUrl . '/detail/' . $product->getId() : null,
+            'is_available' => $available,
+            'sort_order'  => $sortOrder,
+        ];
+
+        $variations = $this->resolveVariations($product);
+        if ($variations !== []) {
+            $item['variations'] = $variations;
+        }
+
+        return $item;
+    }
+
+    /**
+     * @return array{0: float, 1: float|null} [price, salePrice]
+     */
+    private function resolvePrice(ProductEntity $product): array
+    {
+        $priceObj = $product->getPrice()?->first();
+
+        if ($priceObj === null) {
+            // Variant parents may carry no own price — fall back to the first child.
+            $child = $product->getChildren()?->first();
+            $priceObj = $child?->getPrice()?->first();
+        }
+
+        if ($priceObj === null) {
+            return [0.0, null];
+        }
+
+        $gross     = (float) $priceObj->getGross();
+        $listGross = $priceObj->getListPrice() ? (float) $priceObj->getListPrice()->getGross() : 0.0;
+
+        if ($listGross > $gross && $gross > 0) {
+            return [$listGross, $gross]; // regular = "was", sale = current
+        }
+
+        return [$gross, null];
+    }
+
+    /**
+     * Shopware categories are a tree: shallowest → category, next → subcategory.
+     *
+     * @return array{0: ?string, 1: ?string}
+     */
+    private function resolveCategories(ProductEntity $product): array
+    {
+        $categories = $product->getCategories();
+        if ($categories === null || $categories->count() === 0) {
+            return [null, null];
+        }
+
+        $sorted = $categories->getElements();
+        usort($sorted, static fn ($a, $b) => ($a->getLevel() ?? 0) <=> ($b->getLevel() ?? 0));
+
+        $category = null;
+        $subcategory = null;
+        foreach ($sorted as $cat) {
+            $name = (string) $cat->getName();
+            if ($name === '') {
+                continue;
+            }
+            if ($category === null) {
+                $category = $name;
+            } elseif ($subcategory === null) {
+                $subcategory = $name;
+                break;
+            }
+        }
+
+        return [$category, $subcategory];
+    }
+
+    /**
+     * Variant children become selectable variations.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    private function resolveVariations(ProductEntity $product): array
+    {
+        $children = $product->getChildren();
+        if ($children === null || $children->count() === 0) {
+            return [];
+        }
+
+        $variations = [];
+        foreach ($children as $child) {
+            if (! $child->getActive()) {
+                continue;
+            }
+
+            $optionNames = [];
+            $options = $child->getOptions();
+            if ($options !== null) {
+                foreach ($options as $option) {
+                    $optionNames[] = (string) $option->getName();
+                }
+            }
+
+            $priceObj = $child->getPrice()?->first();
+
+            $variations[] = [
+                'name'  => $optionNames !== [] ? implode(', ', $optionNames) : (string) $child->getName(),
+                'price' => $priceObj ? (float) $priceObj->getGross() : 0.0,
+            ];
+        }
+
+        return $variations;
+    }
+}

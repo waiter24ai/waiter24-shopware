@@ -1,0 +1,12 @@
+{% sw_extends '@Storefront/storefront/base.html.twig' %}
+
+{# Inject the Waiter24 chat widget before the end of the body on every page. #}
+{% block base_body_inner %}
+    {{ parent() }}
+
+    {% if config('Waiter24Export.config.enableWidget') and config('Waiter24Export.config.widgetKey') %}
+        <script defer
+                src="{{ config('Waiter24Export.config.widgetUrl') }}"
+                data-key="{{ config('Waiter24Export.config.widgetKey') }}"></script>
+    {% endif %}
+{% endblock %}
