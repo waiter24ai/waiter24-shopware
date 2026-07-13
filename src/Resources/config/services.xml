@@ -12,6 +12,7 @@
         <service id="Waiter24\Export\Service\MenuExporter">
             <argument type="service" id="Waiter24\Export\Service\PluginConfig"/>
             <argument type="service" id="product.repository"/>
+            <argument type="service" id="currency.repository"/>
             <argument type="service" id="logger"/>
         </service>
 

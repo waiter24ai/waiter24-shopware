@@ -16,11 +16,19 @@ import token) and the same JSON schema as the other integrations
   directly; variant children become `variations` (named from their options).
   A `listPrice` above the price becomes `sale_price`. Stock drives
   `is_available` unless Simple Stock Mode is on. Only parent/standalone products
-  are exported (variant children are nested as variations).
+  are exported (variant children are nested as variations). Prices carry the
+  store's default-currency ISO code (e.g. `EUR`), resolved from the context.
 - **Sync**: a daily `ScheduledTask` (`waiter24.export`) pushes the catalog; run
   `bin/console waiter24:export` for an immediate push.
 - **Widget**: `base.html.twig` is extended to inject `widget.js` (with the public
   widget key) before `</body>` when enabled.
+
+## Requirements
+
+- Shopware **6.6.x** (`shopware/core: ~6.6.0`)
+- PHP **8.2+** (Shopware 6.6 baseline)
+- Message queue / scheduled-task worker running (for the daily export task)
+- Outbound HTTPS from the store to `https://waiter24.ai`
 
 ## Install
 
@@ -31,7 +39,19 @@ bin/console plugin:install --activate Waiter24Export
 bin/console cache:clear
 ```
 
-Or via Composer if packaged: `composer require waiter24/shopware-export`.
+### Composer
+
+The package (`waiter24/shopware-export`, type `shopware-platform-plugin`) is a
+private repo, **not on public Packagist**. Register it as a VCS source, then
+require it from the Shopware root:
+
+```bash
+composer config repositories.waiter24 vcs git@github.com:waiter24ai/waiter24-shopware.git
+composer require waiter24/shopware-export:dev-main
+bin/console plugin:refresh
+bin/console plugin:install --activate Waiter24Export
+bin/console cache:clear
+```
 
 ## Configure (merchant)
 
@@ -49,6 +69,11 @@ Or via Composer if packaged: `composer require waiter24/shopware-export`.
 Multi-sales-channel: settings are sales-channel aware (config is read per
 channel), so different channels can feed different Waiter24 tenants.
 
+> **Local testing.** `config.xml` defaults the **Import Endpoint URL** and
+> **Widget Script URL** to the OSPanel dev host (`http://waiter.loc`). Override
+> them in the plugin config to hit your own Waiter24 instance; for production use
+> `https://waiter24.ai/…`.
+
 ## Files
 
 ```
@@ -61,6 +86,12 @@ Waiter24Export/
   src/ScheduledTask/{ExportTask.php, ExportTaskHandler.php}
   src/Command/ExportCommand.php
 ```
+
+## Limitations
+
+- No native "add to cart" push: the export sends `platform_preset = custom`
+  without storefront cart selectors, so the chat assistant recommends items and
+  links to product pages but can't add them to the Shopware cart directly.
 
 ## Follow-ups
 

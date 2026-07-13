@@ -13,13 +13,14 @@ use Symfony\Component\HttpClient\HttpClient;
 /**
  * Builds the platform-neutral menu JSON from the Shopware catalog and pushes it
  * to the Waiter24 import endpoint. Same schema as the WooCommerce, Shopify and
- * Magento integrations (see public/samples/menu-import-sample.json).
+ * Magento integrations (see examples/menu-import-sample.json).
  */
 class MenuExporter
 {
     public function __construct(
         private readonly PluginConfig $config,
         private readonly EntityRepository $productRepository,
+        private readonly EntityRepository $currencyRepository,
         private readonly LoggerInterface $logger,
     ) {
     }
@@ -69,6 +70,7 @@ class MenuExporter
         $context     = Context::createDefaultContext();
         $simpleStock = $this->config->isSimpleStock($salesChannelId);
         $storeUrl    = $this->config->getStoreUrl($salesChannelId);
+        $currency    = $this->resolveCurrencyIso($context);
 
         $criteria = new Criteria();
         $criteria->addFilter(new EqualsFilter('active', true));
@@ -85,7 +87,7 @@ class MenuExporter
         $sort  = 0;
 
         foreach ($products as $product) {
-            $items[] = $this->mapProduct($product, ++$sort, $simpleStock, $storeUrl);
+            $items[] = $this->mapProduct($product, ++$sort, $simpleStock, $storeUrl, $currency);
         }
 
         return [
@@ -95,9 +97,27 @@ class MenuExporter
     }
 
     /**
+     * Resolve the ISO code (e.g. "EUR") of the context's default currency, so
+     * exported prices carry the store's real currency instead of the server's
+     * fallback. Returns null if it can't be determined.
+     */
+    private function resolveCurrencyIso(Context $context): ?string
+    {
+        try {
+            $currency = $this->currencyRepository
+                ->search(new Criteria([$context->getCurrencyId()]), $context)
+                ->first();
+
+            return $currency?->getIsoCode();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
      * @return array<string,mixed>
      */
-    private function mapProduct(ProductEntity $product, int $sortOrder, bool $simpleStock, string $storeUrl): array
+    private function mapProduct(ProductEntity $product, int $sortOrder, bool $simpleStock, string $storeUrl, ?string $currency): array
     {
         [$category, $subcategory] = $this->resolveCategories($product);
         [$price, $salePrice]      = $this->resolvePrice($product);
@@ -117,7 +137,7 @@ class MenuExporter
             'description' => $description ?: null,
             'price'       => $price,
             'sale_price'  => $salePrice,
-            'currency'    => null,
+            'currency'    => $currency,
             'photo_url'   => $photoUrl,
             'product_url' => $storeUrl !== '' ? $storeUrl . '/detail/' . $product->getId() : null,
             'is_available' => $available,
