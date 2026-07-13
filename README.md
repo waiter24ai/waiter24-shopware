@@ -22,6 +22,18 @@ import token) and the same JSON schema as the other integrations
   `bin/console waiter24:export` for an immediate push.
 - **Widget**: `base.html.twig` is extended to inject `widget.js` (with the public
   widget key) before `</body>` when enabled.
+- **Cart bridge** (`Storefront/Controller/CartBridgeController`): two storefront
+  endpoints implementing the platform-neutral contract the chat widget speaks on
+  every CMS. They act on the visitor's own cart token (session cookie), so
+  add-to-cart from chat is theme-independent:
+  - `POST /waiter24/cart/add` — body `{"product_id": "<uuid>", "qty": 2}` →
+    `{"success": true}`. `product_id` may be a variant id (the variation picked
+    in chat) — variants are ordinary Shopware products.
+  - `GET /waiter24/cart` — → `{"items": [{"name", "qty", "price"}]}`, read-only,
+    feeds the AI's cart-aware upsell.
+  Both return 404 while **Enable Chat Widget** is off. The export announces them
+  via `site_config` (`platform_preset: shopware`, `ajax_add_url`,
+  `cart_read_url`), so the tenant panel is prefilled automatically.
 
 ## Requirements
 
@@ -80,18 +92,20 @@ channel), so different channels can feed different Waiter24 tenants.
 Waiter24Export/
   composer.json
   src/Waiter24Export.php
-  src/Resources/config/{config.xml, services.xml}
+  src/Resources/config/{config.xml, services.xml, routes.xml}
   src/Resources/views/storefront/base.html.twig
   src/Service/{PluginConfig.php, MenuExporter.php}
+  src/Storefront/Controller/CartBridgeController.php
   src/ScheduledTask/{ExportTask.php, ExportTaskHandler.php}
   src/Command/ExportCommand.php
 ```
 
 ## Limitations
 
-- No native "add to cart" push: the export sends `platform_preset = custom`
-  without storefront cart selectors, so the chat assistant recommends items and
-  links to product pages but can't add them to the Shopware cart directly.
+- The storefront header cart badge does not refresh automatically after a
+  bridge add — it updates on the next page navigation. If live refresh is
+  needed, a theme-specific snippet can be set in the Waiter24 panel
+  (Site Settings → After-add JavaScript).
 
 ## Follow-ups
 

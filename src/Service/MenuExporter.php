@@ -91,7 +91,17 @@ class MenuExporter
         }
 
         return [
-            'site_config' => ['platform_preset' => 'custom'],
+            // The plugin ships the waiter24 cart-bridge endpoints (see
+            // Storefront/Controller/CartBridgeController), so the widget can add
+            // to and read the Shopware cart on any theme. Panel-owned keys
+            // (cart_integration_enabled, show_go_to_cart, cart_context_enabled)
+            // are deliberately absent.
+            'site_config' => [
+                'platform_preset' => 'shopware',
+                'ajax_add_url'    => '/waiter24/cart/add',
+                'cart_read_url'   => '/waiter24/cart',
+                'cart_url'        => '/checkout/cart',
+            ],
             'items'       => $items,
         ];
     }
@@ -243,6 +253,9 @@ class MenuExporter
             $variations[] = [
                 'name'  => $optionNames !== [] ? implode(', ', $optionNames) : (string) $child->getName(),
                 'price' => $priceObj ? (float) $priceObj->getGross() : 0.0,
+                // Lets the widget push the exact variant the guest picked through
+                // the cart bridge (POST /waiter24/cart/add).
+                'external_id' => $child->getId(),
             ];
         }
 
