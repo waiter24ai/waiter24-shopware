@@ -70,21 +70,25 @@ bin/console cache:clear
 **Settings → System → Plugins → Waiter24Export → ⋯ → Config**
 
 1. **Import Token** — paste the secret from your Waiter24 dashboard
-   (Site Settings → Automatic menu import).
+   (Widget Settings → Menu auto-import).
 2. **Widget Key** — paste the public widget key (same screen).
 3. **Storefront Base URL** — your store URL, used to build product links.
 4. **Simple Stock Mode** — leave on to export everything as available.
 5. **Enable Chat Widget** — turn on to show the assistant on the storefront.
-6. Run `bin/console waiter24:export` to push immediately and verify; the daily
+6. *(optional)* **Demo Mode** — hides the chat from regular visitors; it appears
+   only on URLs carrying `?waiter24_demo=1`. The parameter is remembered for the
+   session and re-applied to in-chat links, so the chat stays visible while
+   clicking around. Useful for showing the assistant to a client before going live.
+7. Run `bin/console waiter24:export` to push immediately and verify; the daily
    task keeps it in sync afterwards.
 
 Multi-sales-channel: settings are sales-channel aware (config is read per
 channel), so different channels can feed different Waiter24 tenants.
 
-> **Local testing.** `config.xml` defaults the **Import Endpoint URL** and
-> **Widget Script URL** to the OSPanel dev host (`http://waiter.loc`). Override
-> them in the plugin config to hit your own Waiter24 instance; for production use
-> `https://waiter24.ai/…`.
+> **URLs.** `config.xml` ships production defaults (`https://waiter24.ai/…`) for
+> the **Import Endpoint URL** and **Widget Script URL**. To point a sales channel
+> at another Waiter24 instance (e.g. an OSPanel dev host at `http://waiter.loc`),
+> override them in the plugin config rather than editing the shipped defaults.
 
 ## Files
 

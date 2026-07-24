@@ -76,7 +76,9 @@ class MenuExporter
         $criteria->addFilter(new EqualsFilter('active', true));
         $criteria->addFilter(new EqualsFilter('parentId', null)); // skip variant children; listed under parents
         $criteria->addAssociation('categories');
-        $criteria->addAssociation('cover.media');
+        // Load the cover media's generated thumbnails too, so the export can ship
+        // a small ~400px image instead of the full-size original (see resolvePhotoUrl).
+        $criteria->addAssociation('cover.media.thumbnails');
         $criteria->addAssociation('children.options.group');
         $criteria->addAssociation('prices');
 
@@ -135,7 +137,7 @@ class MenuExporter
         $description = $product->getDescription();
         $description = $description ? trim(html_entity_decode(strip_tags($description))) : null;
 
-        $photoUrl = $product->getCover()?->getMedia()?->getUrl();
+        $photoUrl = $this->resolvePhotoUrl($product);
 
         $available = $simpleStock ? true : (bool) $product->getAvailable();
 
@@ -160,6 +162,45 @@ class MenuExporter
         }
 
         return $item;
+    }
+
+    /**
+     * Cover image URL for a product, preferring a generated ~400px thumbnail over
+     * the full-size original — the widget renders dish photos small, so the
+     * lighter file loads faster with no visible quality loss. Falls back to the
+     * original media URL when the product has no cover or no thumbnails were
+     * generated (so the export never loses an image it would have shipped before).
+     */
+    private function resolvePhotoUrl(ProductEntity $product): ?string
+    {
+        $media = $product->getCover()?->getMedia();
+        if ($media === null) {
+            return null;
+        }
+
+        $thumbnails = $media->getThumbnails();
+        if ($thumbnails !== null && $thumbnails->count() > 0) {
+            $sorted = $thumbnails->getElements();
+            usort($sorted, static fn ($a, $b) => $a->getWidth() <=> $b->getWidth());
+
+            // Smallest thumbnail still at least ~300px wide; if none reach that,
+            // keep the largest available.
+            $chosen = null;
+            foreach ($sorted as $thumb) {
+                if ($thumb->getWidth() >= 300) {
+                    $chosen = $thumb;
+                    break;
+                }
+            }
+            $chosen ??= end($sorted) ?: null;
+
+            $url = $chosen?->getUrl();
+            if (is_string($url) && $url !== '') {
+                return $url;
+            }
+        }
+
+        return $media->getUrl();
     }
 
     /**

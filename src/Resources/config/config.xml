@@ -9,7 +9,7 @@
             <name>importToken</name>
             <label>Import Token</label>
             <label lang="de-DE">Import-Token</label>
-            <helpText>Secret token from your Waiter24 dashboard (Site Settings → Automatic menu import). Authenticates the menu push.</helpText>
+            <helpText>Secret token from your Waiter24 dashboard (Widget Settings → Menu auto-import). Authenticates the menu push.</helpText>
         </input-field>
 
         <input-field type="text">
@@ -21,13 +21,13 @@
         <input-field type="text">
             <name>endpointUrl</name>
             <label>Import Endpoint URL</label>
-            <defaultValue>http://waiter.loc/api/integrations/menu</defaultValue>
+            <defaultValue>https://waiter24.ai/api/integrations/menu</defaultValue>
         </input-field>
 
         <input-field type="text">
             <name>widgetUrl</name>
             <label>Widget Script URL</label>
-            <defaultValue>http://waiter.loc/widget.js</defaultValue>
+            <defaultValue>https://waiter24.ai/widget.js</defaultValue>
         </input-field>
 
         <input-field type="text">
