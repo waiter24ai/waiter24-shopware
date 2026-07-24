@@ -49,4 +49,9 @@ class PluginConfig
     {
         return (bool) $this->systemConfig->get(self::PREFIX . 'enableWidget', $salesChannelId);
     }
+
+    public function isDemoMode(?string $salesChannelId = null): bool
+    {
+        return (bool) $this->systemConfig->get(self::PREFIX . 'demoMode', $salesChannelId);
+    }
 }

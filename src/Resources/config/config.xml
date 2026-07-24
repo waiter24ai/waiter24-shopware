@@ -9,7 +9,7 @@
             <name>importToken</name>
             <label>Import Token</label>
             <label lang="de-DE">Import-Token</label>
-            <helpText>Secret token from your Waiter24 dashboard (Site Settings → Automatic menu import). Authenticates the menu push.</helpText>
+            <helpText>Secret token from your Waiter24 dashboard (Widget Settings → Menu auto-import). Authenticates the menu push.</helpText>
         </input-field>
 
         <input-field type="text">
@@ -52,6 +52,15 @@
             <name>enableWidget</name>
             <label>Enable Chat Widget</label>
             <helpText>Inject the Waiter24 chat widget on the storefront.</helpText>
+            <defaultValue>false</defaultValue>
+        </input-field>
+
+        <input-field type="bool">
+            <name>demoMode</name>
+            <label>Demo Mode</label>
+            <label lang="de-DE">Demo-Modus</label>
+            <helpText>When enabled, the chat stays hidden for regular visitors and appears only on URLs carrying the "waiter24_demo" GET parameter (e.g. https://yourstore.com/?waiter24_demo=1). The parameter is remembered for the browsing session and re-applied to in-chat links, so the chat stays visible while clicking around.</helpText>
+            <helpText lang="de-DE">Wenn aktiviert, bleibt der Chat für normale Besucher verborgen und erscheint nur bei URLs mit dem GET-Parameter "waiter24_demo" (z. B. https://ihrshop.de/?waiter24_demo=1). Der Parameter wird für die Sitzung gespeichert und auf Chat-Links angewendet.</helpText>
             <defaultValue>false</defaultValue>
         </input-field>
     </card>

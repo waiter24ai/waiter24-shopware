@@ -13,13 +13,14 @@ use Symfony\Component\HttpClient\HttpClient;
 /**
  * Builds the platform-neutral menu JSON from the Shopware catalog and pushes it
  * to the Waiter24 import endpoint. Same schema as the WooCommerce, Shopify and
- * Magento integrations (see public/samples/menu-import-sample.json).
+ * Magento integrations (see examples/menu-import-sample.json).
  */
 class MenuExporter
 {
     public function __construct(
         private readonly PluginConfig $config,
         private readonly EntityRepository $productRepository,
+        private readonly EntityRepository $currencyRepository,
         private readonly LoggerInterface $logger,
     ) {
     }
@@ -69,12 +70,15 @@ class MenuExporter
         $context     = Context::createDefaultContext();
         $simpleStock = $this->config->isSimpleStock($salesChannelId);
         $storeUrl    = $this->config->getStoreUrl($salesChannelId);
+        $currency    = $this->resolveCurrencyIso($context);
 
         $criteria = new Criteria();
         $criteria->addFilter(new EqualsFilter('active', true));
         $criteria->addFilter(new EqualsFilter('parentId', null)); // skip variant children; listed under parents
         $criteria->addAssociation('categories');
-        $criteria->addAssociation('cover.media');
+        // Load the cover media's generated thumbnails too, so the export can ship
+        // a small ~400px image instead of the full-size original (see resolvePhotoUrl).
+        $criteria->addAssociation('cover.media.thumbnails');
         $criteria->addAssociation('children.options.group');
         $criteria->addAssociation('prices');
 
@@ -85,19 +89,47 @@ class MenuExporter
         $sort  = 0;
 
         foreach ($products as $product) {
-            $items[] = $this->mapProduct($product, ++$sort, $simpleStock, $storeUrl);
+            $items[] = $this->mapProduct($product, ++$sort, $simpleStock, $storeUrl, $currency);
         }
 
         return [
-            'site_config' => ['platform_preset' => 'custom'],
+            // The plugin ships the waiter24 cart-bridge endpoints (see
+            // Storefront/Controller/CartBridgeController), so the widget can add
+            // to and read the Shopware cart on any theme. Panel-owned keys
+            // (cart_integration_enabled, show_go_to_cart, cart_context_enabled)
+            // are deliberately absent.
+            'site_config' => [
+                'platform_preset' => 'shopware',
+                'ajax_add_url'    => '/waiter24/cart/add',
+                'cart_read_url'   => '/waiter24/cart',
+                'cart_url'        => '/checkout/cart',
+            ],
             'items'       => $items,
         ];
     }
 
     /**
+     * Resolve the ISO code (e.g. "EUR") of the context's default currency, so
+     * exported prices carry the store's real currency instead of the server's
+     * fallback. Returns null if it can't be determined.
+     */
+    private function resolveCurrencyIso(Context $context): ?string
+    {
+        try {
+            $currency = $this->currencyRepository
+                ->search(new Criteria([$context->getCurrencyId()]), $context)
+                ->first();
+
+            return $currency?->getIsoCode();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
      * @return array<string,mixed>
      */
-    private function mapProduct(ProductEntity $product, int $sortOrder, bool $simpleStock, string $storeUrl): array
+    private function mapProduct(ProductEntity $product, int $sortOrder, bool $simpleStock, string $storeUrl, ?string $currency): array
     {
         [$category, $subcategory] = $this->resolveCategories($product);
         [$price, $salePrice]      = $this->resolvePrice($product);
@@ -105,7 +137,7 @@ class MenuExporter
         $description = $product->getDescription();
         $description = $description ? trim(html_entity_decode(strip_tags($description))) : null;
 
-        $photoUrl = $product->getCover()?->getMedia()?->getUrl();
+        $photoUrl = $this->resolvePhotoUrl($product);
 
         $available = $simpleStock ? true : (bool) $product->getAvailable();
 
@@ -117,7 +149,7 @@ class MenuExporter
             'description' => $description ?: null,
             'price'       => $price,
             'sale_price'  => $salePrice,
-            'currency'    => null,
+            'currency'    => $currency,
             'photo_url'   => $photoUrl,
             'product_url' => $storeUrl !== '' ? $storeUrl . '/detail/' . $product->getId() : null,
             'is_available' => $available,
@@ -130,6 +162,45 @@ class MenuExporter
         }
 
         return $item;
+    }
+
+    /**
+     * Cover image URL for a product, preferring a generated ~400px thumbnail over
+     * the full-size original — the widget renders dish photos small, so the
+     * lighter file loads faster with no visible quality loss. Falls back to the
+     * original media URL when the product has no cover or no thumbnails were
+     * generated (so the export never loses an image it would have shipped before).
+     */
+    private function resolvePhotoUrl(ProductEntity $product): ?string
+    {
+        $media = $product->getCover()?->getMedia();
+        if ($media === null) {
+            return null;
+        }
+
+        $thumbnails = $media->getThumbnails();
+        if ($thumbnails !== null && $thumbnails->count() > 0) {
+            $sorted = $thumbnails->getElements();
+            usort($sorted, static fn ($a, $b) => $a->getWidth() <=> $b->getWidth());
+
+            // Smallest thumbnail still at least ~300px wide; if none reach that,
+            // keep the largest available.
+            $chosen = null;
+            foreach ($sorted as $thumb) {
+                if ($thumb->getWidth() >= 300) {
+                    $chosen = $thumb;
+                    break;
+                }
+            }
+            $chosen ??= end($sorted) ?: null;
+
+            $url = $chosen?->getUrl();
+            if (is_string($url) && $url !== '') {
+                return $url;
+            }
+        }
+
+        return $media->getUrl();
     }
 
     /**
@@ -223,6 +294,9 @@ class MenuExporter
             $variations[] = [
                 'name'  => $optionNames !== [] ? implode(', ', $optionNames) : (string) $child->getName(),
                 'price' => $priceObj ? (float) $priceObj->getGross() : 0.0,
+                // Lets the widget push the exact variant the guest picked through
+                // the cart bridge (POST /waiter24/cart/add).
+                'external_id' => $child->getId(),
             ];
         }
 

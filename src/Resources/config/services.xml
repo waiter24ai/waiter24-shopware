@@ -12,6 +12,7 @@
         <service id="Waiter24\Export\Service\MenuExporter">
             <argument type="service" id="Waiter24\Export\Service\PluginConfig"/>
             <argument type="service" id="product.repository"/>
+            <argument type="service" id="currency.repository"/>
             <argument type="service" id="logger"/>
         </service>
 
@@ -29,6 +30,15 @@
         <!-- Manual export CLI command (auto-tagged console.command via autoconfigure) -->
         <service id="Waiter24\Export\Command\ExportCommand">
             <argument type="service" id="Waiter24\Export\Service\MenuExporter"/>
+        </service>
+
+        <!-- Cart bridge: storefront JSON endpoints the chat widget calls
+             (routes imported via Resources/config/routes.xml) -->
+        <service id="Waiter24\Export\Storefront\Controller\CartBridgeController" public="true">
+            <argument type="service" id="Shopware\Core\Checkout\Cart\SalesChannel\CartService"/>
+            <argument type="service" id="Shopware\Core\Checkout\Cart\LineItemFactoryRegistry"/>
+            <argument type="service" id="Waiter24\Export\Service\PluginConfig"/>
+            <tag name="controller.service_arguments"/>
         </service>
     </services>
 </container>
