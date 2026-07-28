@@ -18,10 +18,19 @@ import token) and the same JSON schema as the other integrations
   `is_available` unless Simple Stock Mode is on. Only parent/standalone products
   are exported (variant children are nested as variations). Prices carry the
   store's default-currency ISO code (e.g. `EUR`), resolved from the context.
+- **What is exported**: `active` products that are also **visible in the sales
+  channel** being pushed (`visibilities.salesChannelId`). Active alone is not
+  enough — a product with no visibility in that channel 404s in its storefront,
+  and the assistant must not offer it.
 - **Sync**: a daily `ScheduledTask` (`waiter24.export`) pushes the catalog; run
-  `bin/console waiter24:export` for an immediate push.
+  `bin/console waiter24:export` for an immediate push. The catalogue goes out in
+  slices of 200 products that share one `import_session`, ending with a `final`
+  call — neither side holds the whole catalogue, and only that closing call hides
+  what the store no longer sells, so an export that dies half way leaves the
+  previous menu alone.
 - **Widget**: `base.html.twig` is extended to inject `widget.js` (with the public
-  widget key) before `</body>` when enabled.
+  widget key) before `</body>` when enabled — except in Demo Mode, where the tag
+  is rendered only on requests carrying `?waiter24_demo=1`.
 - **Cart bridge** (`Storefront/Controller/CartBridgeController`): two storefront
   endpoints implementing the platform-neutral contract the chat widget speaks on
   every CMS. They act on the visitor's own cart token (session cookie), so
@@ -75,10 +84,13 @@ bin/console cache:clear
 3. **Storefront Base URL** — your store URL, used to build product links.
 4. **Simple Stock Mode** — leave on to export everything as available.
 5. **Enable Chat Widget** — turn on to show the assistant on the storefront.
-6. *(optional)* **Demo Mode** — hides the chat from regular visitors; it appears
-   only on URLs carrying `?waiter24_demo=1`. The parameter is remembered for the
-   session and re-applied to in-chat links, so the chat stays visible while
-   clicking around. Useful for showing the assistant to a client before going live.
+6. *(optional)* **Demo Mode** — hides the chat from regular visitors: the
+   `<script>` tag is not rendered at all unless the URL carries
+   `?waiter24_demo=1`, so a normal shopper never loads the widget. Links the
+   assistant opens keep the parameter, so the chat survives in-chat navigation;
+   a page opened without it has no chat. Useful for showing the assistant to a
+   client before going live. Works with the HTTP cache — the demo URL has its
+   own cache entry.
 7. Run `bin/console waiter24:export` to push immediately and verify; the daily
    task keeps it in sync afterwards.
 

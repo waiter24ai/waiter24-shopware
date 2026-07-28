@@ -8,6 +8,7 @@ use Shopware\Core\Framework\Context;
 use Shopware\Core\Framework\DataAbstractionLayer\EntityRepository;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Criteria;
 use Shopware\Core\Framework\DataAbstractionLayer\Search\Filter\EqualsFilter;
+use Shopware\Core\Framework\DataAbstractionLayer\Search\Sorting\FieldSorting;
 use Symfony\Component\HttpClient\HttpClient;
 
 /**
@@ -31,6 +32,12 @@ class MenuExporter
      * @return array<string,mixed>
      * @throws \RuntimeException when not configured or the push fails.
      */
+    /**
+     * Products per push. A catalogue is sent in slices so that neither this
+     * process nor the import endpoint ever has to hold all of it at once.
+     */
+    private const BATCH_SIZE = 200;
+
     public function run(?string $salesChannelId = null): array
     {
         $token    = $this->config->getImportToken($salesChannelId);
@@ -40,8 +47,54 @@ class MenuExporter
             throw new \RuntimeException('Waiter24: import token or endpoint URL is not configured.');
         }
 
-        $payload = $this->build($salesChannelId);
+        // One import session spans every slice: each slice is an upsert, and only
+        // the closing call tells Waiter24 which products the store no longer
+        // sells. An export that dies half way therefore hides nothing — it just
+        // leaves the previous menu in place.
+        $session = 'sw6' . bin2hex(random_bytes(12));
+        $sent    = 0;
+        $page    = 1;
 
+        do {
+            $slice = $this->buildSlice($salesChannelId, $page, self::BATCH_SIZE);
+
+            $payload = [
+                'items'          => $slice['items'],
+                'import_session' => $session,
+                'chunk'          => $page,
+            ];
+
+            // The store's selectors and endpoints do not change between slices,
+            // so they ride the first one.
+            if ($page === 1) {
+                $payload['site_config'] = $this->siteConfig();
+            }
+
+            $this->push($endpoint, $token, $payload);
+
+            $sent += count($slice['items']);
+            ++$page;
+        } while ($slice['has_more']);
+
+        if ($sent === 0) {
+            throw new \RuntimeException('Waiter24: no visible products to export.');
+        }
+
+        return $this->push($endpoint, $token, [
+            'items'          => [],
+            'import_session' => $session,
+            'final'          => true,
+        ]);
+    }
+
+    /**
+     * POST one payload to the import endpoint.
+     *
+     * @param array<string,mixed> $payload
+     * @return array<string,mixed>
+     */
+    private function push(string $endpoint, string $token, array $payload): array
+    {
         $client   = HttpClient::create();
         $response = $client->request('POST', $endpoint, [
             'headers' => [
@@ -63,9 +116,40 @@ class MenuExporter
     }
 
     /**
+     * The whole catalogue in one array. Kept for callers that want it (and for
+     * small stores); `run()` goes slice by slice instead.
+     *
      * @return array{site_config: array<string,mixed>, items: array<int,array<string,mixed>>}
      */
     public function build(?string $salesChannelId = null): array
+    {
+        $items = [];
+        $page  = 1;
+
+        do {
+            $slice = $this->buildSlice($salesChannelId, $page, self::BATCH_SIZE);
+            $items = array_merge($items, $slice['items']);
+            ++$page;
+        } while ($slice['has_more']);
+
+        return [
+            'site_config' => $this->siteConfig(),
+            'items'       => $items,
+        ];
+    }
+
+    /**
+     * One page of the catalogue.
+     *
+     * Only products a shopper can actually reach are exported. `active` alone is
+     * not enough: a product also has to be visible in the sales channel being
+     * pushed, and Shopware keeps that in the `visibilities` association. Without
+     * this filter the assistant would happily offer products whose page returns
+     * a 404 in that storefront.
+     *
+     * @return array{items: array<int,array<string,mixed>>, has_more: bool}
+     */
+    private function buildSlice(?string $salesChannelId, int $page, int $pageSize): array
     {
         $context     = Context::createDefaultContext();
         $simpleStock = $this->config->isSimpleStock($salesChannelId);
@@ -75,6 +159,11 @@ class MenuExporter
         $criteria = new Criteria();
         $criteria->addFilter(new EqualsFilter('active', true));
         $criteria->addFilter(new EqualsFilter('parentId', null)); // skip variant children; listed under parents
+
+        if ($salesChannelId !== null && $salesChannelId !== '') {
+            $criteria->addFilter(new EqualsFilter('visibilities.salesChannelId', $salesChannelId));
+        }
+
         $criteria->addAssociation('categories');
         // Load the cover media's generated thumbnails too, so the export can ship
         // a small ~400px image instead of the full-size original (see resolvePhotoUrl).
@@ -82,29 +171,48 @@ class MenuExporter
         $criteria->addAssociation('children.options.group');
         $criteria->addAssociation('prices');
 
+        // Ordered by a unique key: paging over a non-unique one can shuffle ties
+        // between queries and skip a product, and a product no slice ever sent
+        // would be hidden when the session closes.
+        $criteria->addSorting(new FieldSorting('id', FieldSorting::ASCENDING));
+        $criteria->setLimit($pageSize);
+        $criteria->setOffset(($page - 1) * $pageSize);
+        $criteria->setTotalCountMode(Criteria::TOTAL_COUNT_MODE_EXACT);
+
+        $result = $this->productRepository->search($criteria, $context);
+
         /** @var ProductEntity[] $products */
-        $products = $this->productRepository->search($criteria, $context)->getElements();
+        $products = $result->getElements();
 
         $items = [];
-        $sort  = 0;
+        $sort  = ($page - 1) * $pageSize;
 
         foreach ($products as $product) {
             $items[] = $this->mapProduct($product, ++$sort, $simpleStock, $storeUrl, $currency);
         }
 
         return [
-            // The plugin ships the waiter24 cart-bridge endpoints (see
-            // Storefront/Controller/CartBridgeController), so the widget can add
-            // to and read the Shopware cart on any theme. Panel-owned keys
-            // (cart_integration_enabled, show_go_to_cart, cart_context_enabled)
-            // are deliberately absent.
-            'site_config' => [
-                'platform_preset' => 'shopware',
-                'ajax_add_url'    => '/waiter24/cart/add',
-                'cart_read_url'   => '/waiter24/cart',
-                'cart_url'        => '/checkout/cart',
-            ],
-            'items'       => $items,
+            'items'    => $items,
+            'has_more' => ($page * $pageSize) < $result->getTotal(),
+        ];
+    }
+
+    /**
+     * The plugin ships the waiter24 cart-bridge endpoints (see
+     * Storefront/Controller/CartBridgeController), so the widget can add to and
+     * read the Shopware cart on any theme. Panel-owned keys
+     * (cart_integration_enabled, show_go_to_cart, cart_context_enabled) are
+     * deliberately absent.
+     *
+     * @return array<string,mixed>
+     */
+    private function siteConfig(): array
+    {
+        return [
+            'platform_preset' => 'shopware',
+            'ajax_add_url'    => '/waiter24/cart/add',
+            'cart_read_url'   => '/waiter24/cart',
+            'cart_url'        => '/checkout/cart',
         ];
     }
 
