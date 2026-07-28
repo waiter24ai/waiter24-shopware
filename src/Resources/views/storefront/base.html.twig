@@ -4,10 +4,24 @@
 {% block base_body_inner %}
     {{ parent() }}
 
-    {% if config('Waiter24Export.config.enableWidget') and config('Waiter24Export.config.widgetKey') %}
+    {# Demo mode is enforced here, on the server: with it on, the script tag is
+       not rendered at all unless the visitor arrived on a demo link, so regular
+       shoppers never receive the widget. Hiding it in the browser instead is
+       defeated by anything that touches the markup on the way out — an HTTP
+       cache warmed before the toggle was flipped, a JS optimizer stripping data
+       attributes. Safe with Shopware's HTTP cache, which keys on the full URI,
+       so the demo URL is a separate cache entry.
+
+       The attribute is still emitted, because the widget re-applies the
+       parameter to the links it opens itself (product, cart, checkout) — that is
+       what keeps a demo alive across in-chat navigation. #}
+    {% set w24DemoMode = config('Waiter24Export.config.demoMode') %}
+    {% set w24Visible = not w24DemoMode or app.request.query.has('waiter24_demo') %}
+
+    {% if config('Waiter24Export.config.enableWidget') and config('Waiter24Export.config.widgetKey') and w24Visible %}
         <script defer
                 src="{{ config('Waiter24Export.config.widgetUrl') }}"
                 data-key="{{ config('Waiter24Export.config.widgetKey') }}"
-                {%- if config('Waiter24Export.config.demoMode') %} data-demo-param="waiter24_demo"{% endif %}></script>
+                {%- if w24DemoMode %} data-demo-param="waiter24_demo"{% endif %}></script>
     {% endif %}
 {% endblock %}
