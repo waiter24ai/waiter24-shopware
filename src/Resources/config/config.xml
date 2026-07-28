@@ -9,7 +9,7 @@
             <name>importToken</name>
             <label>Import Token</label>
             <label lang="de-DE">Import-Token</label>
-            <helpText>Secret token from your Waiter24 dashboard (Widget Settings → Menu auto-import). Authenticates the menu push.</helpText>
+            <helpText>Secret token from your Waiter24 dashboard (Site Integration → Menu auto-import). Authenticates the menu push.</helpText>
         </input-field>
 
         <input-field type="text">

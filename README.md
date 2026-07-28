@@ -79,7 +79,7 @@ bin/console cache:clear
 **Settings → System → Plugins → Waiter24Export → ⋯ → Config**
 
 1. **Import Token** — paste the secret from your Waiter24 dashboard
-   (Widget Settings → Menu auto-import).
+   (Site Integration → Menu auto-import).
 2. **Widget Key** — paste the public widget key (same screen).
 3. **Storefront Base URL** — your store URL, used to build product links.
 4. **Simple Stock Mode** — leave on to export everything as available.
@@ -121,7 +121,7 @@ Waiter24Export/
 - The storefront header cart badge does not refresh automatically after a
   bridge add — it updates on the next page navigation. If live refresh is
   needed, a theme-specific snippet can be set in the Waiter24 panel
-  (Site Settings → After-add JavaScript).
+  (Site Integration → DOM selectors → After-add JavaScript).
 
 ## Follow-ups
 
