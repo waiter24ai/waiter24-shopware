@@ -42,6 +42,15 @@
         <title lang="de-DE">Export</title>
 
         <input-field type="bool">
+            <name>autoSync</name>
+            <label>Automatic Sync</label>
+            <label lang="de-DE">Automatische Synchronisierung</label>
+            <helpText>When enabled, the scheduled task exports the catalog once a day on its own. Off (the default on a new install) means the catalog is sent only when you run the export yourself.</helpText>
+            <helpText lang="de-DE">Wenn aktiviert, exportiert die geplante Aufgabe den Katalog einmal täglich von selbst. Aus (Standard bei einer Neuinstallation) bedeutet, dass der Katalog nur gesendet wird, wenn Sie den Export selbst ausführen.</helpText>
+            <defaultValue>false</defaultValue>
+        </input-field>
+
+        <input-field type="bool">
             <name>simpleStock</name>
             <label>Simple Stock Mode</label>
             <helpText>Export all products as available regardless of real stock.</helpText>

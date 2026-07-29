@@ -25,6 +25,7 @@
             <argument type="service" id="scheduled_task.repository"/>
             <argument type="service" id="logger"/>
             <argument type="service" id="Waiter24\Export\Service\MenuExporter"/>
+            <argument type="service" id="Waiter24\Export\Service\PluginConfig"/>
         </service>
 
         <!-- Manual export CLI command (auto-tagged console.command via autoconfigure) -->

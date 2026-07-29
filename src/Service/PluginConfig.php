@@ -40,6 +40,14 @@ class PluginConfig
         return rtrim((string) $this->systemConfig->get(self::PREFIX . 'storeUrl', $salesChannelId), '/');
     }
 
+    /**
+     * May the scheduled task export on its own, without anyone asking it to?
+     */
+    public function isAutoSyncEnabled(?string $salesChannelId = null): bool
+    {
+        return (bool) $this->systemConfig->get(self::PREFIX . 'autoSync', $salesChannelId);
+    }
+
     public function isSimpleStock(?string $salesChannelId = null): bool
     {
         return (bool) $this->systemConfig->get(self::PREFIX . 'simpleStock', $salesChannelId);
