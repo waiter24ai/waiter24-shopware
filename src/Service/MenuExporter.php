@@ -38,6 +38,13 @@ class MenuExporter
      */
     private const BATCH_SIZE = 200;
 
+    /**
+     * Smallest product photo worth shipping, in pixels. Matches the 150px every
+     * other Waiter24 integration exports; Shopware serves whichever configured
+     * thumbnail is the first at or above it.
+     */
+    private const PHOTO_MIN_WIDTH = 150;
+
     public function run(?string $salesChannelId = null): array
     {
         $token    = $this->config->getImportToken($salesChannelId);
@@ -273,11 +280,16 @@ class MenuExporter
     }
 
     /**
-     * Cover image URL for a product, preferring a generated ~400px thumbnail over
-     * the full-size original — the widget renders dish photos small, so the
-     * lighter file loads faster with no visible quality loss. Falls back to the
-     * original media URL when the product has no cover or no thumbnails were
-     * generated (so the export never loses an image it would have shipped before).
+     * Cover image URL for a product, preferring the smallest generated thumbnail
+     * that is still big enough over the full-size original — the widget renders
+     * dish photos small, so the lighter file loads faster with no visible
+     * quality loss. Every Waiter24 integration targets 150px; Shopware only
+     * offers the thumbnail sizes the media folder was configured with (400px
+     * upwards by default) and does not generate one on demand, so this picks the
+     * closest available above the target rather than an exact size. Falls back
+     * to the original media URL when the product has no cover or no thumbnails
+     * were generated (so the export never loses an image it would have shipped
+     * before).
      */
     private function resolvePhotoUrl(ProductEntity $product): ?string
     {
@@ -291,11 +303,11 @@ class MenuExporter
             $sorted = $thumbnails->getElements();
             usort($sorted, static fn ($a, $b) => $a->getWidth() <=> $b->getWidth());
 
-            // Smallest thumbnail still at least ~300px wide; if none reach that,
-            // keep the largest available.
+            // Smallest thumbnail still at least PHOTO_MIN_WIDTH wide; if none
+            // reach that, keep the largest available.
             $chosen = null;
             foreach ($sorted as $thumb) {
-                if ($thumb->getWidth() >= 300) {
+                if ($thumb->getWidth() >= self::PHOTO_MIN_WIDTH) {
                     $chosen = $thumb;
                     break;
                 }

@@ -22,8 +22,14 @@ import token) and the same JSON schema as the other integrations
   channel** being pushed (`visibilities.salesChannelId`). Active alone is not
   enough — a product with no visibility in that channel 404s in its storefront,
   and the assistant must not offer it.
-- **Sync**: a daily `ScheduledTask` (`waiter24.export`) pushes the catalog; run
-  `bin/console waiter24:export` for an immediate push. The catalogue goes out in
+- **Sync**: `bin/console waiter24:export` pushes on demand, and the daily
+  `ScheduledTask` (`waiter24.export`) pushes on its own **once `autoSync` is
+  switched on** — it ships off, so a store that has only just installed the
+  plugin never exports until someone asks it to. The task still runs on
+  Shopware's schedule; it simply returns without exporting. Stores configured
+  before 1.2.0 are switched on explicitly by `Waiter24Export::update()` (any
+  scope with a token saved), so their nightly push survives the upgrade.
+  The catalogue goes out in
   slices of 200 products that share one `import_session`, ending with a `final`
   call — neither side holds the whole catalogue, and only that closing call hides
   what the store no longer sells, so an export that dies half way leaves the
@@ -82,17 +88,21 @@ bin/console cache:clear
    (Site Integration → Menu auto-import).
 2. **Widget Key** — paste the public widget key (same screen).
 3. **Storefront Base URL** — your store URL, used to build product links.
-4. **Simple Stock Mode** — leave on to export everything as available.
-5. **Enable Chat Widget** — turn on to show the assistant on the storefront.
-6. *(optional)* **Demo Mode** — hides the chat from regular visitors: the
+4. **Automatic Sync** — off by default: nothing is exported until you run the
+   export yourself. Turn it on once you are happy with the result and the daily
+   task keeps the catalog in sync.
+5. **Simple Stock Mode** — leave on to export everything as available.
+6. **Enable Chat Widget** — turn on to show the assistant on the storefront.
+7. *(optional)* **Demo Mode** — hides the chat from regular visitors: the
    `<script>` tag is not rendered at all unless the URL carries
    `?waiter24_demo=1`, so a normal shopper never loads the widget. Links the
    assistant opens keep the parameter, so the chat survives in-chat navigation;
    a page opened without it has no chat. Useful for showing the assistant to a
    client before going live. Works with the HTTP cache — the demo URL has its
    own cache entry.
-7. Run `bin/console waiter24:export` to push immediately and verify; the daily
-   task keeps it in sync afterwards.
+8. Run `bin/console waiter24:export` to push immediately and verify. Nothing is
+   exported before this — with **Automatic Sync** off the plugin does not push a
+   catalog on its own.
 
 Multi-sales-channel: settings are sales-channel aware (config is read per
 channel), so different channels can feed different Waiter24 tenants.
