@@ -34,6 +34,14 @@ import token) and the same JSON schema as the other integrations
   call — neither side holds the whole catalogue, and only that closing call hides
   what the store no longer sells, so an export that dies half way leaves the
   previous menu alone.
+- **Realtime sync** (1.3.0+, rides the same `autoSync` switch): any product write
+  (`product.written` — price, description, stock, `active`, or a brand new
+  product) is queued by `Subscriber\ProductWrittenSubscriber` and flushed about
+  once a minute by `RealtimePushTask`. A variant write is resolved to its parent,
+  since `variations[]` is always rebuilt in full. A product that just went
+  inactive is pushed as `is_available: false` rather than dropped — `upsert`
+  never hides an absent item on its own. An outright deletion has nothing left to
+  re-read at flush time, so it is only picked up by the next scheduled export.
 - **Widget**: `base.html.twig` is extended to inject `widget.js` (with the public
   widget key) before `</body>` when enabled — except in Demo Mode, where the tag
   is rendered only on requests carrying `?waiter24_demo=1`.

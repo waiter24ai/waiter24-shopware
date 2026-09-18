@@ -95,6 +95,101 @@ class MenuExporter
     }
 
     /**
+     * Push a small, explicit set of products — the realtime subscriber's
+     * debounced queue (see Subscriber/ProductWrittenSubscriber), not a
+     * catalogue slice. A written id belonging to a variant is resolved to its
+     * parent, since mapProduct() always rebuilds variations[] in full — a
+     * partial update would drop every sibling variant from the menu. A
+     * product that is now inactive is pushed as unavailable rather than
+     * skipped: `upsert` never hides an absent item, only a full session close
+     * does (see run()).
+     *
+     * @param string[] $productIds
+     * @return array<string,mixed>
+     */
+    public function pushProducts(array $productIds, ?string $salesChannelId = null): array
+    {
+        $token    = $this->config->getImportToken($salesChannelId);
+        $endpoint = $this->config->getEndpointUrl($salesChannelId);
+
+        if ($token === '' || $endpoint === '') {
+            throw new \RuntimeException('Waiter24: import token or endpoint URL is not configured.');
+        }
+
+        $productIds = array_values(array_unique($productIds));
+        if ($productIds === []) {
+            return ['ok' => true, 'items' => 0];
+        }
+
+        $context     = Context::createDefaultContext();
+        $simpleStock = $this->config->isSimpleStock($salesChannelId);
+        $storeUrl    = $this->config->getStoreUrl($salesChannelId);
+        $currency    = $this->resolveCurrencyIso($context);
+
+        $written = $this->fetchProducts($productIds, $context);
+
+        // A variant's own id was written; the parent is what carries the
+        // menu entry, so it is the parent that gets rebuilt and re-sent.
+        $roots     = [];
+        $parentIds = [];
+        foreach ($written as $product) {
+            $parentId = $product->getParentId();
+            if ($parentId !== null) {
+                $parentIds[] = $parentId;
+            } else {
+                $roots[$product->getId()] = $product;
+            }
+        }
+
+        $missingParents = array_diff($parentIds, array_keys($roots));
+        if ($missingParents !== []) {
+            foreach ($this->fetchProducts(array_values(array_unique($missingParents)), $context) as $parent) {
+                $roots[$parent->getId()] = $parent;
+            }
+        }
+
+        $items = [];
+        foreach ($roots as $product) {
+            if ($product->getActive()) {
+                $items[] = $this->mapProduct($product, null, $simpleStock, $storeUrl, $currency);
+            } else {
+                $items[] = [
+                    'external_id'  => $product->getId(),
+                    'name'         => (string) $product->getName(),
+                    'is_available' => false,
+                ];
+            }
+        }
+
+        if ($items === []) {
+            return ['ok' => true, 'items' => 0];
+        }
+
+        // Explicit upsert: the import endpoint defaults to `replace` when
+        // `mode` is omitted, which would hide the tenant's entire menu but
+        // for these items.
+        return $this->push($endpoint, $token, [
+            'items' => $items,
+            'mode'  => 'upsert',
+        ]);
+    }
+
+    /**
+     * @param string[] $ids
+     * @return ProductEntity[]
+     */
+    private function fetchProducts(array $ids, Context $context): array
+    {
+        $criteria = new Criteria($ids);
+        $criteria->addAssociation('categories');
+        $criteria->addAssociation('cover.media.thumbnails');
+        $criteria->addAssociation('children.options.group');
+        $criteria->addAssociation('prices');
+
+        return $this->productRepository->search($criteria, $context)->getElements();
+    }
+
+    /**
      * POST one payload to the import endpoint.
      *
      * @param array<string,mixed> $payload
@@ -242,9 +337,14 @@ class MenuExporter
     }
 
     /**
+     * @param ?int $sortOrder Row position within the full-catalogue export.
+     *                        Omitted (null) for a realtime single-product push,
+     *                        which must not overwrite the position the last
+     *                        full export assigned — the import endpoint leaves
+     *                        a key it never receives untouched.
      * @return array<string,mixed>
      */
-    private function mapProduct(ProductEntity $product, int $sortOrder, bool $simpleStock, string $storeUrl, ?string $currency): array
+    private function mapProduct(ProductEntity $product, ?int $sortOrder, bool $simpleStock, string $storeUrl, ?string $currency): array
     {
         [$category, $subcategory] = $this->resolveCategories($product);
         [$price, $salePrice]      = $this->resolvePrice($product);
@@ -268,8 +368,11 @@ class MenuExporter
             'photo_url'   => $photoUrl,
             'product_url' => $storeUrl !== '' ? $storeUrl . '/detail/' . $product->getId() : null,
             'is_available' => $available,
-            'sort_order'  => $sortOrder,
         ];
+
+        if ($sortOrder !== null) {
+            $item['sort_order'] = $sortOrder;
+        }
 
         $variations = $this->resolveVariations($product);
         if ($variations !== []) {
