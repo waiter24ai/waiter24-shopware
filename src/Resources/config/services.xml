@@ -16,6 +16,10 @@
             <argument type="service" id="logger"/>
         </service>
 
+        <service id="Waiter24\Export\Service\RealtimeQueue">
+            <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
+        </service>
+
         <!-- Scheduled daily export task (handler auto-registered via #[AsMessageHandler]) -->
         <service id="Waiter24\Export\ScheduledTask\ExportTask">
             <tag name="shopware.scheduled.task"/>
@@ -25,6 +29,27 @@
             <argument type="service" id="scheduled_task.repository"/>
             <argument type="service" id="logger"/>
             <argument type="service" id="Waiter24\Export\Service\MenuExporter"/>
+            <argument type="service" id="Waiter24\Export\Service\PluginConfig"/>
+        </service>
+
+        <!-- Debounced realtime push: a product write queues it (see the
+             subscriber below); this task flushes the queue about once a minute. -->
+        <service id="Waiter24\Export\ScheduledTask\RealtimePushTask">
+            <tag name="shopware.scheduled.task"/>
+        </service>
+
+        <service id="Waiter24\Export\ScheduledTask\RealtimePushTaskHandler">
+            <argument type="service" id="scheduled_task.repository"/>
+            <argument type="service" id="logger"/>
+            <argument type="service" id="Waiter24\Export\Service\RealtimeQueue"/>
+            <argument type="service" id="Waiter24\Export\Service\MenuExporter"/>
+            <argument type="service" id="Waiter24\Export\Service\PluginConfig"/>
+        </service>
+
+        <!-- Auto-tagged kernel.event_subscriber via autoconfigure (implements
+             EventSubscriberInterface) -->
+        <service id="Waiter24\Export\Subscriber\ProductWrittenSubscriber">
+            <argument type="service" id="Waiter24\Export\Service\RealtimeQueue"/>
             <argument type="service" id="Waiter24\Export\Service\PluginConfig"/>
         </service>
 
