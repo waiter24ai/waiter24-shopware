@@ -12,6 +12,11 @@ use Waiter24\Export\Service\PluginConfig;
 #[AsMessageHandler(handles: ExportTask::class)]
 class ExportTaskHandler extends ScheduledTaskHandler
 {
+    // Kept on this class rather than read back from the parent: ScheduledTaskHandler
+    // stores its logger as `exceptionLogger`, so `$this->logger` never existed
+    // there and every log call below died with an Error.
+    private readonly LoggerInterface $taskLogger;
+
     public function __construct(
         EntityRepository $scheduledTaskRepository,
         LoggerInterface $logger,
@@ -19,6 +24,7 @@ class ExportTaskHandler extends ScheduledTaskHandler
         private readonly PluginConfig $config,
     ) {
         parent::__construct($scheduledTaskRepository, $logger);
+        $this->taskLogger = $logger;
     }
 
     public function run(): void
@@ -33,9 +39,9 @@ class ExportTaskHandler extends ScheduledTaskHandler
 
         try {
             $result = $this->exporter->run();
-            $this->logger->info('Waiter24 scheduled export OK', ['result' => $result]);
+            $this->taskLogger->info('Waiter24 scheduled export OK', ['result' => $result]);
         } catch (\Throwable $e) {
-            $this->logger->error('Waiter24 scheduled export failed', ['error' => $e->getMessage()]);
+            $this->taskLogger->error('Waiter24 scheduled export failed', ['error' => $e->getMessage()]);
         }
     }
 }

@@ -13,6 +13,9 @@ use Waiter24\Export\Service\RealtimeQueue;
 #[AsMessageHandler(handles: RealtimePushTask::class)]
 class RealtimePushTaskHandler extends ScheduledTaskHandler
 {
+    // See ExportTaskHandler: the parent keeps its logger as `exceptionLogger`.
+    private readonly LoggerInterface $taskLogger;
+
     public function __construct(
         EntityRepository $scheduledTaskRepository,
         LoggerInterface $logger,
@@ -21,6 +24,7 @@ class RealtimePushTaskHandler extends ScheduledTaskHandler
         private readonly PluginConfig $config,
     ) {
         parent::__construct($scheduledTaskRepository, $logger);
+        $this->taskLogger = $logger;
     }
 
     public function run(): void
@@ -35,9 +39,9 @@ class RealtimePushTaskHandler extends ScheduledTaskHandler
 
         try {
             $result = $this->exporter->pushProducts($productIds);
-            $this->logger->info('Waiter24 realtime push OK', ['result' => $result]);
+            $this->taskLogger->info('Waiter24 realtime push OK', ['result' => $result]);
         } catch (\Throwable $e) {
-            $this->logger->error('Waiter24 realtime push failed', ['error' => $e->getMessage()]);
+            $this->taskLogger->error('Waiter24 realtime push failed', ['error' => $e->getMessage()]);
         }
     }
 }
