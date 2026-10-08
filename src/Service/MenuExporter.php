@@ -27,12 +27,6 @@ class MenuExporter
     }
 
     /**
-     * Build + push. Returns the decoded server response.
-     *
-     * @return array<string,mixed>
-     * @throws \RuntimeException when not configured or the push fails.
-     */
-    /**
      * Products per push. A catalogue is sent in slices so that neither this
      * process nor the import endpoint ever has to hold all of it at once.
      */
@@ -45,6 +39,12 @@ class MenuExporter
      */
     private const PHOTO_MIN_WIDTH = 150;
 
+    /**
+     * Build + push. Returns the decoded server response.
+     *
+     * @return array<string,mixed>
+     * @throws \RuntimeException when not configured or the push fails.
+     */
     public function run(?string $salesChannelId = null): array
     {
         $token    = $this->config->getImportToken($salesChannelId);
@@ -454,7 +454,13 @@ class MenuExporter
     }
 
     /**
-     * Shopware categories are a tree: shallowest → category, next → subcategory.
+     * Shopware categories are a tree: shallowest → category, one of its own
+     * children → subcategory.
+     *
+     * Level 1 is a sales channel's navigation root ("Home"/"Catalogue #1") —
+     * never a menu section, even when a product is assigned to it. And the
+     * subcategory must actually sit under the category: a product in "Pizza"
+     * and in "Drinks › Cola" is not a "Pizza › Cola".
      *
      * @return array{0: ?string, 1: ?string}
      */
@@ -465,10 +471,14 @@ class MenuExporter
             return [null, null];
         }
 
-        $sorted = $categories->getElements();
+        $sorted = array_filter(
+            $categories->getElements(),
+            static fn ($cat) => ($cat->getLevel() ?? 0) > 1,
+        );
         usort($sorted, static fn ($a, $b) => ($a->getLevel() ?? 0) <=> ($b->getLevel() ?? 0));
 
-        $category = null;
+        $category    = null;
+        $categoryId  = null;
         $subcategory = null;
         foreach ($sorted as $cat) {
             $name = (string) $cat->getName();
@@ -476,8 +486,9 @@ class MenuExporter
                 continue;
             }
             if ($category === null) {
-                $category = $name;
-            } elseif ($subcategory === null) {
+                $category   = $name;
+                $categoryId = $cat->getId();
+            } elseif ($cat->getParentId() === $categoryId) {
                 $subcategory = $name;
                 break;
             }
@@ -499,8 +510,16 @@ class MenuExporter
         }
 
         $variations = [];
+        // Variants inherit from their parent field by field, and a plain
+        // DefaultContext does not resolve that inheritance: an inherited value
+        // reads back as null. So null `active` means "same as the parent" (only
+        // an explicit false switches a variant off), and a null price falls back
+        // to the parent's — otherwise every inheriting variant was either
+        // dropped or exported at 0.
+        $parentPrice = $product->getPrice()?->first();
+
         foreach ($children as $child) {
-            if (! $child->getActive()) {
+            if ($child->getActive() === false) {
                 continue;
             }
 
@@ -512,10 +531,10 @@ class MenuExporter
                 }
             }
 
-            $priceObj = $child->getPrice()?->first();
+            $priceObj = $child->getPrice()?->first() ?? $parentPrice;
 
             $variations[] = [
-                'name'  => $optionNames !== [] ? implode(', ', $optionNames) : (string) $child->getName(),
+                'name'  => $optionNames !== [] ? implode(', ', $optionNames) : (string) ($child->getName() ?? $product->getName()),
                 'price' => $priceObj ? (float) $priceObj->getGross() : 0.0,
                 // Lets the widget push the exact variant the guest picked through
                 // the cart bridge (POST /waiter24/cart/add).

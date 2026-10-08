@@ -151,18 +151,29 @@ class CartBridgeController
         $productId = (string) ($body['product_id'] ?? $request->request->get('product_id', ''));
         $qty       = (int) ($body['qty'] ?? $request->request->get('qty', 1));
 
+        // Every add-on value comes from the shopper's browser, so it is
+        // untrusted: an add-on is its own priced child line here, so a negative
+        // price would be a straight discount on the dish. Same normalisation as
+        // the WooCommerce plugin (w24_sanitize_addons).
         $addons = [];
         foreach ((array) ($body['addons'] ?? []) as $a) {
-            if (! is_array($a) || empty($a['name'])) {
+            if (! is_array($a) || ! isset($a['name']) || ! is_scalar($a['name'])) {
+                continue;
+            }
+            $name = mb_substr(trim(strip_tags((string) $a['name'])), 0, 120);
+            if ($name === '') {
                 continue;
             }
             $addons[] = [
-                'name'  => (string) $a['name'],
-                'price' => isset($a['price']) ? (float) $a['price'] : 0.0,
-                'qty'   => isset($a['qty']) ? max(1, (int) $a['qty']) : 1,
+                'name'  => $name,
+                'price' => isset($a['price']) && is_numeric($a['price']) ? max(0.0, (float) $a['price']) : 0.0,
+                'qty'   => isset($a['qty']) && is_numeric($a['qty']) ? min(99, max(1, (int) $a['qty'])) : 1,
             ];
+            if (count($addons) >= 20) {
+                break;
+            }
         }
 
-        return [trim($productId), max(1, $qty), $addons];
+        return [trim($productId), min(999, max(1, $qty)), $addons];
     }
 }
